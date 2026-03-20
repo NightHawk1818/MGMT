@@ -1,4 +1,4 @@
- /* =====================================================================
+/* =====================================================================
    EduCore LMS — app.js
    Full single-page application logic
    ===================================================================== */
@@ -58,6 +58,16 @@ const SEED = {
     { id:'m3', fromId:'u3', toId:'u1', courseId:'c2', subject:'Integration techniques help', content:"Professor, I'm struggling with integration by partial fractions. Could you point me to some additional resources?", timestamp:'2024-03-15T09:00:00', read:false, threadId:'t2' },
   ],
   enrollmentRequests: [],
+  timetable: [
+    { id:'tt1', courseId:'c1', day:'Mon', startHour:'09:00', endHour:'10:00', room:'Tech Hall 201' },
+    { id:'tt2', courseId:'c1', day:'Wed', startHour:'09:00', endHour:'10:00', room:'Tech Hall 201' },
+    { id:'tt3', courseId:'c1', day:'Fri', startHour:'09:00', endHour:'10:00', room:'Tech Hall 201' },
+    { id:'tt4', courseId:'c2', day:'Tue', startHour:'11:00', endHour:'13:00', room:'Math Bldg 105' },
+    { id:'tt5', courseId:'c2', day:'Thu', startHour:'11:00', endHour:'13:00', room:'Math Bldg 105' },
+    { id:'tt6', courseId:'c3', day:'Mon', startHour:'14:00', endHour:'15:00', room:'Liberal Arts 302' },
+    { id:'tt7', courseId:'c3', day:'Wed', startHour:'14:00', endHour:'15:00', room:'Liberal Arts 302' },
+    { id:'tt8', courseId:'c3', day:'Fri', startHour:'14:00', endHour:'15:00', room:'Liberal Arts 302' },
+  ],
   notifications: [
     { id:'nt1', userId:'u2', type:'grade',        message:'Python Basics Quiz graded: 88/100',         read:false, timestamp:'2024-03-16T09:00:00' },
     { id:'nt2', userId:'u2', type:'announcement',  message:'New announcement in CS101: Midterm Exam',   read:false, timestamp:'2024-03-10T08:00:00' },
@@ -95,7 +105,7 @@ const App = {
     }
     const data = JSON.parse(raw);
     // Ensure all required collections exist (guards against stale/partial data)
-    const collections = ['users','courses','assignments','announcements','notes','messages','notifications','enrollmentRequests'];
+    const collections = ['users','courses','assignments','announcements','notes','messages','notifications','enrollmentRequests','timetable'];
     let changed = false;
     collections.forEach(key => {
       if (!Array.isArray(data[key])) { data[key] = JSON.parse(JSON.stringify(SEED[key])); changed = true; }
@@ -1365,101 +1375,232 @@ const App = {
   renderTimetable() {
     const db = this.load(); const u = this.state.user;
     const isEdu = u.role === 'educator';
-    const relevantCourses = isEdu
-      ? db.courses.filter(c => c.educatorId === u.id)
-      : db.courses.filter(c => c.enrolled.includes(u.id));
-
-    const days = ['Mon','Tue','Wed','Thu','Fri'];
-    const hours = ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00'];
-
-    // Build grid lookup: { "Mon-09:00": courseId }
-    const grid = {};
-    relevantCourses.forEach(c => {
-      // Parse schedule string to get days and start time
-      const parsed = this.parseSchedule(c.schedule);
-      parsed.forEach(({day, startHour}) => {
-        const key = `${day}-${startHour}`;
-        grid[key] = c;
-      });
-    });
-
-    const sec = document.getElementById('sec-timetable');
-    sec.innerHTML = `
-      <div class="sec-header"><div><h1 class="sec-title">Weekly Timetable 📅</h1><p class="sec-subtitle">Your weekly class schedule</p></div></div>
-      <div class="timetable-wrap">
-        <div class="timetable-grid">
-          <div class="tt-cell tt-header"></div>
-          ${days.map(d=>`<div class="tt-cell tt-header">${d}</div>`).join('')}
-          ${hours.map(h => `
-            <div class="tt-cell tt-time">${this.fmt12h(h)}</div>
-            ${days.map(d => {
-              const c = grid[`${d}-${h}`];
-              if (c) {
-                return `<div class="tt-cell">
-                  <div class="tt-class" style="background:${c.color}22;border-left:3px solid ${c.color};color:var(--text)">
-                    <div class="tt-class-title">${c.code}</div>
-                    <div class="tt-class-room" style="color:var(--text2)">${c.room||''}</div>
-                  </div>
-                </div>`;
-              }
-              return `<div class="tt-cell"></div>`;
-            }).join('')}
-          `).join('')}
-        </div>
-      </div>
-      <div style="margin-top:20px;display:flex;flex-wrap:wrap;gap:10px">
-        ${relevantCourses.map(c=>`<div style="display:flex;align-items:center;gap:6px;padding:6px 12px;background:var(--card);border:1px solid var(--border);border-radius:50px;font-size:13px">
-          <div style="width:10px;height:10px;border-radius:50%;background:${c.color}"></div>
-          <strong>${c.code}</strong> — ${c.schedule}
-        </div>`).join('')}
-      </div>`;
+    if (isEdu) this.renderEducatorTimetable(db, u);
+    else this.renderStudentTimetable(db, u);
   },
 
-  parseSchedule(schedule) {
-    // e.g. "MWF 9:00–10:00 AM" or "TTh 11:00 AM–1:00 PM"
-    const dayMap = { M:'Mon', W:'Wed', F:'Fri', T:'Tue', Th:'Thu' };
-    const result = [];
-    if (!schedule) return result;
-    try {
-      const parts = schedule.trim().split(' ');
-      const dayStr = parts[0];
-      // Extract start time
-      const timeStr = parts[1] || '';
-      const hourStr = timeStr.split('–')[0].split(':')[0];
-      let hour = parseInt(hourStr);
-      // Handle PM
-      const ampm = schedule.toUpperCase();
-      if (ampm.includes('PM') && hour < 12) hour += 12;
-      const startHour = hour.toString().padStart(2,'0') + ':00';
+  DAYS: ['Mon','Tue','Wed','Thu','Fri'],
+  HOURS: ['08:00','09:00','10:00','11:00','12:00','13:00','14:00','15:00','16:00','17:00'],
 
-      // Parse days
-      let i = 0;
-      while (i < dayStr.length) {
-        if (i+1 < dayStr.length && dayStr[i]==='T' && dayStr[i+1]==='h') {
-          result.push({ day:'Thu', startHour }); i += 2;
-        } else if (dayStr[i]==='T') {
-          result.push({ day:'Tue', startHour }); i++;
-        } else if (dayStr[i]==='M') {
-          result.push({ day:'Mon', startHour }); i++;
-        } else if (dayStr[i]==='W') {
-          result.push({ day:'Wed', startHour }); i++;
-        } else if (dayStr[i]==='F') {
-          result.push({ day:'Fri', startHour }); i++;
-        } else { i++; }
-      }
-    } catch(e) { /* ignore parse errors */ }
-    return result;
+  renderStudentTimetable(db, u) {
+    const sec = document.getElementById('sec-timetable');
+    const myCourses = db.courses.filter(c => c.enrolled.includes(u.id));
+    const myEntries = (db.timetable||[]).filter(t => myCourses.some(c => c.id === t.courseId));
+
+    const grid = {};
+    myEntries.forEach(t => { grid[t.day + '-' + t.startHour] = t; });
+
+    sec.innerHTML =
+      '<div class="sec-header"><div><h1 class="sec-title">Weekly Timetable 📅</h1><p class="sec-subtitle">Your weekly class schedule</p></div></div>' +
+      (myCourses.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">📅</div><h3>No classes scheduled</h3><p>Enroll in courses to see your timetable.</p></div>' :
+      '<div class="timetable-wrap">' + this.buildTimetableGridHTML(grid, db, false) + '</div>' +
+      '<div class="tt-legend">' + myCourses.map(c =>
+        '<div class="tt-legend-item"><div class="tt-legend-dot" style="background:' + c.color + '"></div><strong>' + c.code + '</strong> — ' + c.title + '</div>'
+      ).join('') + '</div>');
+  },
+
+  renderEducatorTimetable(db, u) {
+    const sec = document.getElementById('sec-timetable');
+    const myCourses = db.courses.filter(c => c.educatorId === u.id);
+    const myEntries = (db.timetable||[]).filter(t => myCourses.some(c => c.id === t.courseId));
+
+    const grid = {};
+    myEntries.forEach(t => { grid[t.day + '-' + t.startHour] = t; });
+
+    // Count total unique students across all courses
+    const allStudentIds = [...new Set(myCourses.flatMap(c => c.enrolled))];
+
+    sec.innerHTML =
+      '<div class="sec-header"><div><h1 class="sec-title">Timetable Manager 📅</h1><p class="sec-subtitle">' + myEntries.length + ' scheduled slot' + (myEntries.length!==1?'s':'') + ' across ' + myCourses.length + ' course' + (myCourses.length!==1?'s':'') + '</p></div>' +
+      '<button class="btn btn-primary" onclick="App.openAddSlotModal()">+ Add Slot</button></div>' +
+
+      (myCourses.length === 0 ? '<div class="empty-state"><div class="empty-state-icon">📅</div><h3>No courses yet</h3><p>Create a course first, then schedule timetable slots.</p></div>' :
+
+      '<div class="tt-layout">' +
+        '<div class="tt-main">' +
+          '<div class="timetable-wrap">' + this.buildTimetableGridHTML(grid, db, true) + '</div>' +
+          '<div class="tt-legend">' + myCourses.map(c =>
+            '<div class="tt-legend-item"><div class="tt-legend-dot" style="background:' + c.color + '"></div><strong>' + c.code + '</strong> — ' + c.title + '</div>'
+          ).join('') + '</div>' +
+        '</div>' +
+
+        '<div class="tt-sidebar-panel">' +
+          '<div class="tt-panel-head">👥 Enrolled Students <span class="badge badge-blue">' + allStudentIds.length + '</span></div>' +
+          (allStudentIds.length === 0 ?
+            '<p style="color:var(--text3);font-size:13px;padding:12px 0">No students enrolled in any course yet.</p>' :
+            '<div class="tt-student-list">' +
+              allStudentIds.map(sid => {
+                const student = db.users.find(u2 => u2.id === sid);
+                if (!student) return '';
+                const studentCourses = myCourses.filter(c => c.enrolled.includes(sid));
+                return '<div class="tt-student-row">' +
+                  '<div class="avatar-sm" style="background:' + (student.avatarColor||avatarColor(student.name)) + ';color:white;font-size:11px;flex-shrink:0">' + student.avatar + '</div>' +
+                  '<div style="flex:1;min-width:0">' +
+                    '<div style="font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + student.name + '</div>' +
+                    '<div style="font-size:11px;color:var(--text3);margin-top:2px">' + studentCourses.map(c => '<span class="badge badge-gray" style="font-size:10px;padding:1px 6px;margin-right:3px">' + c.code + '</span>').join('') + '</div>' +
+                  '</div>' +
+                '</div>';
+              }).join('') +
+            '</div>') +
+        '</div>' +
+      '</div>');
+  },
+
+  buildTimetableGridHTML(grid, db, isEdu) {
+    const days = this.DAYS;
+    const hours = this.HOURS;
+    let html = '<div class="timetable-grid">';
+    // Header row
+    html += '<div class="tt-cell tt-header"></div>';
+    days.forEach(d => { html += '<div class="tt-cell tt-header">' + d + '</div>'; });
+    // Body rows
+    hours.forEach(h => {
+      html += '<div class="tt-cell tt-time">' + this.fmt12h(h) + '</div>';
+      days.forEach(d => {
+        const key = d + '-' + h;
+        const entry = grid[key];
+        if (entry) {
+          const course = db.courses.find(c => c.id === entry.courseId);
+          if (course) {
+            const enrolled = course.enrolled.length;
+            html += '<div class="tt-cell">' +
+              '<div class="tt-class" style="background:' + course.color + '22;border-left:3px solid ' + course.color + '" ' +
+                (isEdu ? 'onclick="App.openEditSlotModal(\'' + entry.id + '\')" style="background:' + course.color + '22;border-left:3px solid ' + course.color + ';cursor:pointer"' : '') + '>' +
+              '<div class="tt-class-title">' + course.code + '</div>' +
+              '<div class="tt-class-room">' + (entry.room||course.room||'') + '</div>' +
+              '<div class="tt-class-time" style="font-size:10px;opacity:.7;margin-top:2px">' + this.fmt12h(entry.startHour) + '–' + this.fmt12h(entry.endHour) + '</div>' +
+              (isEdu ? '<div style="font-size:10px;opacity:.6;margin-top:1px">👥 ' + enrolled + '</div>' : '') +
+              '</div>' +
+            '</div>';
+          } else {
+            html += '<div class="tt-cell"></div>';
+          }
+        } else if (isEdu) {
+          html += '<div class="tt-cell tt-empty-slot" onclick="App.openAddSlotModal(\'' + d + '\',\'' + h + '\')" title="Add class here">+</div>';
+        } else {
+          html += '<div class="tt-cell"></div>';
+        }
+      });
+    });
+    html += '</div>';
+    return html;
+  },
+
+  openAddSlotModal(day, hour) {
+    const db = this.load(); const u = this.state.user;
+    const myCourses = db.courses.filter(c => c.educatorId === u.id);
+    if (!myCourses.length) { this.toast('Create a course first before scheduling.', 'error'); return; }
+    const dayOptions = this.DAYS.map(d => '<option value="' + d + '"' + (d===day?' selected':'') + '>' + d + '</option>').join('');
+    const hourOptions = this.HOURS.map(h => '<option value="' + h + '"' + (h===hour?' selected':'') + '>' + this.fmt12h(h) + '</option>').join('');
+    const endHours = this.HOURS.slice(1).concat(['18:00']);
+    const defaultEnd = hour ? (this.HOURS[this.HOURS.indexOf(hour)+1] || '18:00') : '10:00';
+    const endOptions = endHours.map(h => '<option value="' + h + '"' + (h===defaultEnd?' selected':'') + '>' + this.fmt12h(h) + '</option>').join('');
+    const courseOptions = myCourses.map(c => '<option value="' + c.id + '">' + c.code + ' — ' + c.title + '</option>').join('');
+    this.openModal('📅 Add Timetable Slot', `
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Course</label><select id="ts-course" class="form-input">${courseOptions}</select></div>
+        <div class="form-group"><label class="form-label">Day</label><select id="ts-day" class="form-input">${dayOptions}</select></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Start Time</label><select id="ts-start" class="form-input">${hourOptions}</select></div>
+        <div class="form-group"><label class="form-label">End Time</label><select id="ts-end" class="form-input">${endOptions}</select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Room (optional override)</label><input id="ts-room" class="form-input" placeholder="e.g. Tech Hall 201"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="App.saveSlot()">Add Slot</button>
+      </div>`);
+  },
+
+  openEditSlotModal(slotId) {
+    const db = this.load(); const u = this.state.user;
+    const slot = (db.timetable||[]).find(t => t.id === slotId);
+    if (!slot) return;
+    const myCourses = db.courses.filter(c => c.educatorId === u.id);
+    const dayOptions = this.DAYS.map(d => '<option value="' + d + '"' + (d===slot.day?' selected':'') + '>' + d + '</option>').join('');
+    const hourOptions = this.HOURS.map(h => '<option value="' + h + '"' + (h===slot.startHour?' selected':'') + '>' + this.fmt12h(h) + '</option>').join('');
+    const endHours = this.HOURS.slice(1).concat(['18:00']);
+    const endOptions = endHours.map(h => '<option value="' + h + '"' + (h===slot.endHour?' selected':'') + '>' + this.fmt12h(h) + '</option>').join('');
+    const courseOptions = myCourses.map(c => '<option value="' + c.id + '"' + (c.id===slot.courseId?' selected':'') + '>' + c.code + ' — ' + c.title + '</option>').join('');
+
+    // Show enrolled students for this slot's course
+    const course = db.courses.find(c => c.id === slot.courseId);
+    const studentList = course && course.enrolled.length
+      ? course.enrolled.map(sid => {
+          const s = db.users.find(u2 => u2.id === sid);
+          return s ? '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'
+            + '<div class="avatar-sm" style="background:' + (s.avatarColor||'#6b7280') + ';color:white;font-size:11px;width:26px;height:26px;min-width:26px">' + s.avatar + '</div>'
+            + '<div><div style="font-size:13px;font-weight:600">' + s.name + '</div><div style="font-size:11px;color:var(--text3)">' + s.email + '</div></div>'
+            + '</div>' : '';
+        }).join('')
+      : '<p style="font-size:13px;color:var(--text3);padding:6px 0">No students enrolled yet.</p>';
+
+    this.openModal('✏️ Edit Timetable Slot', `
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Course</label><select id="ts-course" class="form-input">${courseOptions}</select></div>
+        <div class="form-group"><label class="form-label">Day</label><select id="ts-day" class="form-input">${dayOptions}</select></div>
+      </div>
+      <div class="form-grid">
+        <div class="form-group"><label class="form-label">Start Time</label><select id="ts-start" class="form-input">${hourOptions}</select></div>
+        <div class="form-group"><label class="form-label">End Time</label><select id="ts-end" class="form-input">${endOptions}</select></div>
+      </div>
+      <div class="form-group"><label class="form-label">Room</label><input id="ts-room" class="form-input" value="${slot.room||''}" placeholder="e.g. Tech Hall 201"></div>
+      <div class="form-group">
+        <label class="form-label">👥 Enrolled Students (${course?.enrolled?.length||0})</label>
+        <div style="max-height:160px;overflow-y:auto;background:var(--bg2);border-radius:8px;padding:6px 10px">${studentList}</div>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-danger" onclick="App.deleteSlot('${slotId}')">🗑️ Delete Slot</button>
+        <button class="btn btn-ghost" onclick="App.closeModal()">Cancel</button>
+        <button class="btn btn-primary" onclick="App.saveSlot('${slotId}')">Save Changes</button>
+      </div>`);
+  },
+
+  saveSlot(slotId) {
+    const courseId = document.getElementById('ts-course')?.value;
+    const day      = document.getElementById('ts-day')?.value;
+    const startHour= document.getElementById('ts-start')?.value;
+    const endHour  = document.getElementById('ts-end')?.value;
+    const room     = (document.getElementById('ts-room')?.value||'').trim();
+    if (!courseId || !day || !startHour || !endHour) { this.toast('Please fill all fields.','error'); return; }
+    if (startHour >= endHour) { this.toast('End time must be after start time.','error'); return; }
+    const db = this.load();
+    if (!db.timetable) db.timetable = [];
+    if (slotId) {
+      const slot = db.timetable.find(t => t.id === slotId);
+      if (slot) Object.assign(slot, { courseId, day, startHour, endHour, room });
+      this.toast('Slot updated! 📅', 'success');
+    } else {
+      // Check for conflict
+      const conflict = db.timetable.find(t => t.day===day && t.startHour===startHour && t.courseId===courseId);
+      if (conflict) { this.toast('A slot for this course already exists at that time.','error'); return; }
+      db.timetable.push({ id:'tt'+Date.now(), courseId, day, startHour, endHour, room });
+      this.toast('Slot added! 📅', 'success');
+    }
+    this.save(db);
+    this.closeModal();
+    this.navigate('timetable');
+  },
+
+  deleteSlot(slotId) {
+    if (!confirm('Remove this timetable slot?')) return;
+    const db = this.load();
+    db.timetable = (db.timetable||[]).filter(t => t.id !== slotId);
+    this.save(db);
+    this.toast('Slot removed.', 'info');
+    this.closeModal();
+    this.navigate('timetable');
   },
 
   fmt12h(h24) {
-    const [h,m] = h24.split(':');
+    const [h] = h24.split(':');
     const n = parseInt(h);
     const ampm = n >= 12 ? 'PM' : 'AM';
     const h12 = n % 12 || 12;
-    return `${h12}:${m} ${ampm}`;
+    return h12 + ':00 ' + ampm;
   },
 
-  // ══ ANNOUNCEMENTS ══════════════════════════════════════════════════════
+    // ══ ANNOUNCEMENTS ══════════════════════════════════════════════════════
   renderAnnouncements() {
     const db = this.load(); const u = this.state.user;
     const isEdu = u.role === 'educator';
