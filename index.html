@@ -150,9 +150,24 @@
             <div id="notif-list" class="notif-list"></div>
           </div>
         </div>
-        <div class="tb-profile">
+        <div class="tb-profile" id="tb-profile-btn">
           <div class="avatar-sm" id="tb-avatar"></div>
           <span id="tb-name"></span>
+          <span style="font-size:10px;opacity:.6;margin-left:2px;">▾</span>
+          <div class="profile-dropdown" id="profile-dropdown">
+            <div class="profile-dropdown-header">
+              <div class="avatar-md" id="pd-avatar"></div>
+              <div>
+                <div id="pd-name" style="font-weight:600;font-size:14px;"></div>
+                <div id="pd-role" style="font-size:11px;opacity:.6;margin-top:2px;text-transform:capitalize;"></div>
+                <div id="pd-email" style="font-size:11px;opacity:.5;margin-top:1px;"></div>
+              </div>
+            </div>
+            <div class="profile-dropdown-divider"></div>
+            <button class="profile-dropdown-item" id="pd-logout-btn">
+              <span>🚪</span><span>Sign Out</span>
+            </button>
+          </div>
         </div>
       </div>
     </header>
