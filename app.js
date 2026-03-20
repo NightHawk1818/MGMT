@@ -1,4 +1,4 @@
-/* =====================================================================
+ /* =====================================================================
    EduCore LMS — app.js
    Full single-page application logic
    ===================================================================== */
@@ -57,6 +57,7 @@ const SEED = {
     { id:'m2', fromId:'u1', toId:'u2', courseId:'c1', subject:'Re: Question about Data Structures Project', content:"Hi Alex! Both approaches are acceptable. Recursive implementations are often more elegant for trees, but make sure to discuss the trade-offs in your write-up. Good luck!", timestamp:'2024-03-14T11:30:00', read:true, threadId:'t1' },
     { id:'m3', fromId:'u3', toId:'u1', courseId:'c2', subject:'Integration techniques help', content:"Professor, I'm struggling with integration by partial fractions. Could you point me to some additional resources?", timestamp:'2024-03-15T09:00:00', read:false, threadId:'t2' },
   ],
+  enrollmentRequests: [],
   notifications: [
     { id:'nt1', userId:'u2', type:'grade',        message:'Python Basics Quiz graded: 88/100',         read:false, timestamp:'2024-03-16T09:00:00' },
     { id:'nt2', userId:'u2', type:'announcement',  message:'New announcement in CS101: Midterm Exam',   read:false, timestamp:'2024-03-10T08:00:00' },
@@ -87,8 +88,20 @@ const App = {
   // ── Storage ──────────────────────────────────────────────────────────
   load() {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) { localStorage.setItem(STORAGE_KEY, JSON.stringify(SEED)); return JSON.parse(JSON.stringify(SEED)); }
-    return JSON.parse(raw);
+    if (!raw) {
+      const seed = JSON.parse(JSON.stringify(SEED));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+      return seed;
+    }
+    const data = JSON.parse(raw);
+    // Ensure all required collections exist (guards against stale/partial data)
+    const collections = ['users','courses','assignments','announcements','notes','messages','notifications','enrollmentRequests'];
+    let changed = false;
+    collections.forEach(key => {
+      if (!Array.isArray(data[key])) { data[key] = JSON.parse(JSON.stringify(SEED[key])); changed = true; }
+    });
+    if (changed) localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+    return data;
   },
   save(data) { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); },
 
@@ -167,19 +180,29 @@ const App = {
       const pass  = document.getElementById('signup-password').value;
       const role  = document.querySelector('input[name="signup-role"]:checked').value;
       const err   = document.getElementById('signup-error');
+      err.classList.add('hidden');
       if (!name || !email || !pass) { err.textContent='❌ All fields required.'; err.classList.remove('hidden'); return; }
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent='❌ Please enter a valid email address.'; err.classList.remove('hidden'); return; }
       if (pass.length < 6) { err.textContent='❌ Password must be at least 6 characters.'; err.classList.remove('hidden'); return; }
       const db = this.load();
       if (db.users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
-        err.textContent='❌ Email already registered.'; err.classList.remove('hidden'); return;
+        err.textContent='❌ Email already registered. Try signing in instead.'; err.classList.remove('hidden'); return;
       }
-      const initials = name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-      const newUser = { id:'u'+Date.now(), name, email, password:pass, role, avatar:initials, avatarColor:avatarColor(name), year:1 };
+      const initials = name.split(' ').filter(Boolean).map(w=>w[0]).join('').toUpperCase().slice(0,2);
+      const newUser = {
+        id: 'u' + Date.now(),
+        name, email, password: pass, role,
+        avatar: initials,
+        avatarColor: avatarColor(name),
+        year: 1,
+        bio: role === 'educator' ? 'Educator' : 'Student'
+      };
       db.users.push(newUser);
       this.save(db);
       this.state.user = newUser;
       localStorage.setItem('educore_session', newUser.id);
       this.showApp();
+      this.toast('Welcome to EduCore, ' + name.split(' ')[0] + '! 🎉', 'success');
     });
   },
 
@@ -187,6 +210,9 @@ const App = {
     localStorage.removeItem('educore_session');
     this.state.user = null;
     this.state.section = 'dashboard';
+    this.state.activeMessageThread = null;
+    this._appBound = false;
+    document.getElementById('profile-dropdown').classList.remove('open');
     this.showAuth();
   },
 
@@ -241,23 +267,49 @@ const App = {
   // ── Topbar ─────────────────────────────────────────────────────────────
   updateTopbar() {
     const u = this.state.user;
+    const color = u.avatarColor || avatarColor(u.name);
     const av = document.getElementById('tb-avatar');
     av.textContent = u.avatar;
-    av.style.background = u.avatarColor || avatarColor(u.name);
+    av.style.background = color;
     av.style.color = 'white';
     document.getElementById('tb-name').textContent = u.name.split(' ')[0];
+    // Populate dropdown
+    const pdAv = document.getElementById('pd-avatar');
+    if (pdAv) {
+      pdAv.textContent = u.avatar;
+      pdAv.style.background = color;
+      pdAv.style.color = 'white';
+    }
+    const pdName = document.getElementById('pd-name');
+    const pdRole = document.getElementById('pd-role');
+    const pdEmail = document.getElementById('pd-email');
+    if (pdName) pdName.textContent = u.name;
+    if (pdRole) pdRole.textContent = u.role;
+    if (pdEmail) pdEmail.textContent = u.email;
   },
 
   // ── App event bindings ────────────────────────────────────────────────
   bindApp() {
+    if (this._appBound) return;
+    this._appBound = true;
+
     // Sidebar nav delegation
     document.getElementById('sb-nav').addEventListener('click', e => {
       const item = e.target.closest('.nav-item');
       if (item) this.navigate(item.dataset.section);
     });
 
-    // Logout
+    // Logout (sidebar)
     document.getElementById('logout-btn').addEventListener('click', () => this.logout());
+
+    // Profile dropdown toggle
+    document.getElementById('tb-profile-btn').addEventListener('click', e => {
+      e.stopPropagation();
+      document.getElementById('profile-dropdown').classList.toggle('open');
+    });
+
+    // Logout from profile dropdown
+    document.getElementById('pd-logout-btn').addEventListener('click', () => this.logout());
 
     // Hamburger
     document.getElementById('hamburger-btn').addEventListener('click', () => this.openSidebar());
@@ -280,6 +332,8 @@ const App = {
         document.getElementById('notif-drop').classList.add('hidden');
       if (!document.querySelector('.tb-search-wrap').contains(e.target))
         document.getElementById('search-overlay').classList.add('hidden');
+      if (!document.getElementById('tb-profile-btn').contains(e.target))
+        document.getElementById('profile-dropdown').classList.remove('open');
     });
 
     // Global search
@@ -535,6 +589,7 @@ const App = {
     const allAssignments = db.assignments.filter(a => myCourses.some(c => c.id === a.courseId));
     const pendingGrade = allAssignments.reduce((n,a) => n + a.submissions.filter(s => s.grade === null).length, 0);
     const totalStudents = [...new Set(myCourses.flatMap(c => c.enrolled))].length;
+    const pendingEnrollments = (db.enrollmentRequests||[]).filter(r => myCourses.some(c=>c.id===r.courseId) && r.status==='pending').length;
 
     sec.innerHTML = `
       <div class="sec-header">
@@ -545,7 +600,7 @@ const App = {
         <div class="stat-card blue"><div class="stat-icon">📚</div><div class="stat-value">${myCourses.length}</div><div class="stat-label">Active Courses</div></div>
         <div class="stat-card green"><div class="stat-icon">🎓</div><div class="stat-value">${totalStudents}</div><div class="stat-label">Total Students</div></div>
         <div class="stat-card orange"><div class="stat-icon">📝</div><div class="stat-value">${pendingGrade}</div><div class="stat-label">Ungraded Submissions</div></div>
-        <div class="stat-card violet"><div class="stat-icon">📢</div><div class="stat-value">${db.announcements.filter(a=>myCourses.some(c=>c.id===a.courseId)).length}</div><div class="stat-label">Announcements</div></div>
+        <div class="stat-card ${pendingEnrollments>0?'red':'violet'}" style="cursor:${pendingEnrollments>0?'pointer':'default'}" onclick="${pendingEnrollments>0?'App.navigate(\'manage-courses\')':''}"><div class="stat-icon">📥</div><div class="stat-value">${pendingEnrollments}</div><div class="stat-label">Enrollment Requests</div></div>
       </div>
       <div class="dash-grid">
         <div class="card">
@@ -559,6 +614,21 @@ const App = {
               <span class="badge badge-orange">${ungraded} pending</span>
             </div>`;
           }).join('') || '<p style="color:var(--text3);font-size:14px;padding:8px 0">✅ All submissions graded!</p>'}
+        </div>
+        <div class="card">
+          <div class="card-header"><h3 class="card-title">📥 Enrollment Requests</h3><button class="btn btn-ghost btn-sm" onclick="App.navigate('manage-courses')">View Courses</button></div>
+          ${(db.enrollmentRequests||[]).filter(r=>myCourses.some(c=>c.id===r.courseId)&&r.status==='pending').slice(0,4).map(r=>{
+            const student = db.users.find(x=>x.id===r.studentId);
+            const course = db.courses.find(x=>x.id===r.courseId);
+            return `<div class="activity-item">
+              <div class="avatar-sm" style="background:${student?.avatarColor||avatarColor(student?.name||'')};color:white;font-size:12px;">${student?.avatar||'?'}</div>
+              <div class="activity-text"><div class="activity-title">${student?.name||'Unknown'}</div><div class="activity-sub">${course?.code||''} · ${this.timeAgo(r.createdAt)}</div></div>
+              <div style="display:flex;gap:6px">
+                <button class="btn btn-primary btn-xs" onclick="App.approveEnrollment('${r.id}')">✅</button>
+                <button class="btn btn-danger btn-xs" onclick="App.rejectEnrollment('${r.id}')">❌</button>
+              </div>
+            </div>`;
+          }).join('') || '<p style="color:var(--text3);font-size:14px;padding:8px 0">No pending requests.</p>'}
         </div>
         <div class="card">
           <div class="card-header"><h3 class="card-title">✉️ Recent Messages</h3><button class="btn btn-ghost btn-sm" onclick="App.navigate('messages')">View All</button></div>
@@ -579,6 +649,7 @@ const App = {
   },
 
   courseCardHTML(c, db, isEducator=false) {
+    const pendingReqs = isEducator ? (db.enrollmentRequests||[]).filter(r => r.courseId === c.id && r.status === 'pending').length : 0;
     return `<div class="course-card" onclick="App.navigate('${isEducator?'manage-courses':'courses'}')">
       <div class="course-banner" style="background:${c.color}"></div>
       <div class="course-body">
@@ -592,6 +663,7 @@ const App = {
         <div class="course-footer">
           <span class="course-enrolled">👥 ${c.enrolled.length} enrolled</span>
           ${isEducator ? `<div class="course-actions">
+            ${pendingReqs > 0 ? `<button class="btn btn-warning btn-xs" onclick="event.stopPropagation();App.openEnrollmentRequestsModal('${c.id}')">📥 ${pendingReqs} Request${pendingReqs>1?'s':''}</button>` : ''}
             <button class="btn btn-ghost btn-xs" onclick="event.stopPropagation();App.openEditCourseModal('${c.id}')">✏️ Edit</button>
             <button class="btn btn-danger btn-xs" onclick="event.stopPropagation();App.deleteCourse('${c.id}')">🗑️</button>
           </div>` : `<span class="badge badge-green">Enrolled ✓</span>`}
@@ -604,13 +676,44 @@ const App = {
   renderCourses() {
     const db = this.load(); const u = this.state.user;
     const myCourses = db.courses.filter(c => c.enrolled.includes(u.id));
+    const browseCourses = db.courses.filter(c => !c.enrolled.includes(u.id));
     const sec = document.getElementById('sec-courses');
-    sec.innerHTML = `
-      <div class="sec-header">
-        <div><h1 class="sec-title">My Courses</h1><p class="sec-subtitle">You're enrolled in ${myCourses.length} course${myCourses.length!==1?'s':''}</p></div>
-      </div>
-      ${myCourses.length ? `<div class="courses-grid">${myCourses.map(c => this.fullCourseCard(c, db, u)).join('')}</div>`
-        : `<div class="empty-state"><div class="empty-state-icon">📚</div><h3>No courses enrolled</h3><p>You haven't been enrolled in any courses yet.</p></div>`}`;
+    sec.innerHTML =
+      '<div class="sec-header"><div><h1 class="sec-title">My Courses</h1><p class="sec-subtitle">You\'re enrolled in ' + myCourses.length + ' course' + (myCourses.length!==1?'s':'') + '</p></div></div>' +
+      (myCourses.length
+        ? '<div class="courses-grid">' + myCourses.map(c => this.fullCourseCard(c, db, u)).join('') + '</div>'
+        : '<div class="empty-state"><div class="empty-state-icon">📚</div><h3>No courses enrolled</h3><p>Browse available courses below and request to join.</p></div>') +
+      (browseCourses.length ? '<div class="sec-header" style="margin-top:32px"><div><h2 class="sec-title" style="font-size:20px">🔍 Browse Available Courses</h2><p class="sec-subtitle">' + browseCourses.length + ' course' + (browseCourses.length!==1?'s':'') + ' available to join</p></div></div><div class="courses-grid">' + browseCourses.map(c => this.browseableCourseCard(c, db, u)).join('') + '</div>' : '');
+  },
+
+  browseableCourseCard(c, db, u) {
+    const educator = db.users.find(x => x.id === c.educatorId);
+    const reqs = db.enrollmentRequests || [];
+    const existing = reqs.find(r => r.courseId === c.id && r.studentId === u.id);
+    let actionBtn = '';
+    if (existing && existing.status === 'pending') {
+      actionBtn = '<button class="btn btn-ghost btn-sm" disabled style="cursor:default;opacity:.7">⏳ Request Pending</button>';
+    } else if (existing && existing.status === 'rejected') {
+      actionBtn = '<button class="btn btn-ghost btn-sm" disabled style="cursor:default;opacity:.7;color:var(--danger)">❌ Request Declined</button>';
+    } else {
+      actionBtn = '<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();App.requestEnrollment(\'' + c.id + '\')">+ Request to Enroll</button>';
+    }
+    return '<div class="course-card" style="cursor:default;opacity:.95"><div class="course-banner" style="background:' + c.color + '"></div><div class="course-body"><div class="course-code">' + c.code + '</div><div class="course-title">' + c.title + '</div><div class="course-desc">' + c.description + '</div><div class="course-meta"><span class="badge badge-blue">' + c.credits + ' credits</span><span class="badge badge-gray">' + c.category + '</span><span class="badge badge-purple">🕐 ' + c.schedule + '</span></div><div class="course-footer" style="margin-top:10px;justify-content:space-between;align-items:center"><span style="font-size:12px;color:var(--text2)">👩‍🏫 ' + (educator?.name||'Unknown') + '</span>' + actionBtn + '</div></div></div>';
+  },
+
+  requestEnrollment(courseId) {
+    const db = this.load(); const u = this.state.user;
+    if (!db.enrollmentRequests) db.enrollmentRequests = [];
+    const already = db.enrollmentRequests.find(r => r.courseId === courseId && r.studentId === u.id && r.status === 'pending');
+    if (already) { this.toast('You already have a pending request for this course.', 'info'); return; }
+    const course = db.courses.find(c => c.id === courseId);
+    if (!course) return;
+    const req = { id: 'er' + Date.now(), courseId, studentId: u.id, status: 'pending', createdAt: new Date().toISOString() };
+    db.enrollmentRequests.push(req);
+    this.save(db);
+    this.addNotification(course.educatorId, 'enrollment', '📥 ' + u.name + ' requested to join ' + course.code);
+    this.toast('Enrollment request sent! Waiting for teacher approval. 📩', 'success');
+    this.navigate('courses');
   },
 
   fullCourseCard(c, db, u) {
@@ -652,6 +755,66 @@ const App = {
       </div>
       ${myCourses.length ? `<div class="courses-grid">${myCourses.map(c => this.courseCardHTML(c,db,true)).join('')}</div>`
         : `<div class="empty-state"><div class="empty-state-icon">📚</div><h3>No courses yet</h3><p>Create your first course to get started.</p></div>`}`;
+  },
+
+  openEnrollmentRequestsModal(courseId) {
+    const db = this.load();
+    const course = db.courses.find(c => c.id === courseId);
+    if (!course) return;
+    const pending = (db.enrollmentRequests || []).filter(r => r.courseId === courseId && r.status === 'pending');
+    if (!pending.length) { this.toast('No pending enrollment requests.', 'info'); return; }
+    const rows = pending.map(r => {
+      const student = db.users.find(u => u.id === r.studentId);
+      const color = student && student.avatarColor ? student.avatarColor : '#6b7280';
+      const name = student ? student.name : 'Unknown';
+      const email = student ? student.email : '';
+      const initials = student ? student.avatar : '?';
+      return '<div class="activity-item" style="padding:12px 0;border-bottom:1px solid var(--border)">'
+        + '<div class="avatar-sm" style="background:' + color + ';color:white;font-size:12px;flex-shrink:0">' + initials + '</div>'
+        + '<div class="activity-text" style="flex:1">'
+        + '<div class="activity-title">' + name + '</div>'
+        + '<div class="activity-sub">' + email + '</div>'
+        + '<div class="activity-sub" style="margin-top:2px">Requested ' + this.timeAgo(r.createdAt) + '</div>'
+        + '</div>'
+        + '<div style="display:flex;gap:8px;flex-shrink:0">'
+        + '<button class="btn btn-primary btn-sm" onclick="App.approveEnrollment(\'' + r.id + '\')">✅ Approve</button>'
+        + '<button class="btn btn-danger btn-sm" onclick="App.rejectEnrollment(\'' + r.id + '\')">❌ Decline</button>'
+        + '</div></div>';
+    }).join('');
+    this.openModal('📥 Enrollment Requests — ' + course.code,
+      '<p style="color:var(--text2);font-size:13px;margin-bottom:16px">' + pending.length + ' student' + (pending.length!==1?'s':'') + ' want' + (pending.length===1?'s':'') + ' to join <strong>' + course.title + '</strong></p>' + rows
+    );
+  },
+
+  approveEnrollment(requestId) {
+    const db = this.load();
+    const req = (db.enrollmentRequests || []).find(r => r.id === requestId);
+    if (!req) return;
+    req.status = 'approved';
+    const course = db.courses.find(c => c.id === req.courseId);
+    if (course && !course.enrolled.includes(req.studentId)) course.enrolled.push(req.studentId);
+    this.save(db);
+    const student = db.users.find(u => u.id === req.studentId);
+    this.addNotification(req.studentId, 'enrollment', '🎉 Your request to join ' + (course ? course.code : 'a course') + ' was approved!');
+    this.toast((student ? student.name : 'Student') + ' approved and enrolled! ✅', 'success');
+    const remaining = (this.load().enrollmentRequests || []).filter(r => r.courseId === req.courseId && r.status === 'pending');
+    if (remaining.length) this.openEnrollmentRequestsModal(req.courseId);
+    else { this.closeModal(); this.navigate('manage-courses'); }
+  },
+
+  rejectEnrollment(requestId) {
+    const db = this.load();
+    const req = (db.enrollmentRequests || []).find(r => r.id === requestId);
+    if (!req) return;
+    req.status = 'rejected';
+    this.save(db);
+    const student = db.users.find(u => u.id === req.studentId);
+    const course = db.courses.find(c => c.id === req.courseId);
+    this.addNotification(req.studentId, 'enrollment', '❌ Your request to join ' + (course ? course.code : 'a course') + ' was declined.');
+    this.toast((student ? student.name : 'Student') + "'s request declined.", 'info');
+    const remaining = (this.load().enrollmentRequests || []).filter(r => r.courseId === req.courseId && r.status === 'pending');
+    if (remaining.length) this.openEnrollmentRequestsModal(req.courseId);
+    else { this.closeModal(); this.navigate('manage-courses'); }
   },
 
   openAddCourseModal() {
@@ -1430,8 +1593,11 @@ const App = {
   },
 
   openThread(threadId) {
-    this.state.activeMessageThread = threadId;
     const db = this.load(); const u = this.state.user;
+    // Security: ensure current user is a participant in this thread
+    const isParticipant = db.messages.some(m => m.threadId === threadId && (m.fromId === u.id || m.toId === u.id));
+    if (!isParticipant) return;
+    this.state.activeMessageThread = threadId;
     const msgs = db.messages.filter(m => m.threadId === threadId).sort((a,b)=>a.timestamp.localeCompare(b.timestamp));
     const firstMsg = msgs[0];
     const other = db.users.find(x => x.id === (firstMsg.fromId===u.id ? firstMsg.toId : firstMsg.fromId));
