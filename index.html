@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EduCore — Learning Management System</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Nunito:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ====== AUTH PAGE ====== -->
+<div id="auth-page">
+  <div class="auth-bg">
+    <div class="auth-orb orb-1"></div>
+    <div class="auth-orb orb-2"></div>
+    <div class="auth-orb orb-3"></div>
+  </div>
+  <div class="auth-wrap">
+    <div class="auth-brand">
+      <div class="auth-logo-icon">
+        <svg width="44" height="44" viewBox="0 0 44 44" fill="none">
+          <rect width="44" height="44" rx="12" fill="var(--accent)"/>
+          <path d="M11 31L22 13L33 31" stroke="white" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="22" cy="25" r="4.5" fill="white"/>
+        </svg>
+      </div>
+      <h1 class="brand-name">EduCore</h1>
+      <p class="brand-tagline">Intelligent Learning Management</p>
+    </div>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">Sign In</button>
+        <button class="auth-tab" data-tab="signup">Sign Up</button>
+      </div>
+      <!-- Login -->
+      <form id="login-form" class="auth-form">
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input type="email" id="login-email" class="form-input" placeholder="you@example.com" autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="login-password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+        </div>
+        <div class="demo-hints">
+          <p>🎓 <strong>Student:</strong> alex@student.com / stu123</p>
+          <p>👩‍🏫 <strong>Educator:</strong> sarah@edu.com / edu123</p>
+        </div>
+        <button type="submit" class="btn btn-primary w-full">Sign In</button>
+        <p id="login-error" class="form-error hidden"></p>
+      </form>
+      <!-- Signup -->
+      <form id="signup-form" class="auth-form hidden">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="signup-name" class="form-input" placeholder="Jane Doe">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email Address</label>
+          <input type="email" id="signup-email" class="form-input" placeholder="you@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Password</label>
+          <input type="password" id="signup-password" class="form-input" placeholder="Min. 6 characters">
+        </div>
+        <div class="form-group">
+          <label class="form-label">I am a...</label>
+          <div class="role-picker">
+            <label class="role-opt">
+              <input type="radio" name="signup-role" value="student" checked>
+              <span class="role-tile">🎓<br><strong>Student</strong></span>
+            </label>
+            <label class="role-opt">
+              <input type="radio" name="signup-role" value="educator">
+              <span class="role-tile">👩‍🏫<br><strong>Educator</strong></span>
+            </label>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary w-full">Create Account</button>
+        <p id="signup-error" class="form-error hidden"></p>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ====== MAIN APP ====== -->
+<div id="app" style="display:none;">
+
+  <!-- Sidebar -->
+  <aside id="sidebar">
+    <div class="sb-header">
+      <div class="sb-brand">
+        <svg width="30" height="30" viewBox="0 0 44 44" fill="none">
+          <rect width="44" height="44" rx="12" fill="var(--accent)"/>
+          <path d="M11 31L22 13L33 31" stroke="white" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="22" cy="25" r="4.5" fill="white"/>
+        </svg>
+        <span class="sb-brand-text">EduCore</span>
+      </div>
+      <button id="sb-close-btn" class="icon-btn">✕</button>
+    </div>
+    <div class="sb-user-card">
+      <div class="avatar-md" id="sb-avatar"></div>
+      <div>
+        <div class="sb-user-name" id="sb-name"></div>
+        <div class="sb-user-role" id="sb-role-badge"></div>
+      </div>
+    </div>
+    <nav id="sb-nav" class="sb-nav"></nav>
+    <div class="sb-footer">
+      <button class="sb-footer-btn" id="theme-toggle-btn">
+        <span id="theme-icon">🌙</span><span id="theme-label">Dark Mode</span>
+        <span class="toggle-pill"><span class="toggle-knob" id="toggle-knob"></span></span>
+      </button>
+      <button class="sb-footer-btn logout-btn" id="logout-btn">
+        <span>🚪</span><span>Sign Out</span>
+      </button>
+    </div>
+  </aside>
+
+  <div id="sb-overlay" class="sb-overlay"></div>
+
+  <!-- Main -->
+  <div id="main-wrap">
+    <!-- Topbar -->
+    <header id="topbar">
+      <div class="tb-left">
+        <button id="hamburger-btn" class="hamburger">
+          <span></span><span></span><span></span>
+        </button>
+        <div class="tb-search-wrap">
+          <span>🔍</span>
+          <input type="text" id="global-search" placeholder="Search everything…" autocomplete="off">
+        </div>
+      </div>
+      <div class="tb-right">
+        <div class="notif-wrap" id="notif-wrap">
+          <button class="notif-btn" id="notif-btn">
+            <span class="notif-icon">🔔</span>
+            <span class="notif-badge hidden" id="notif-badge">0</span>
+          </button>
+          <div class="notif-drop hidden" id="notif-drop">
+            <div class="notif-head">
+              <span>Notifications</span>
+              <button id="mark-read-btn" class="link-btn">Mark all read</button>
+            </div>
+            <div id="notif-list" class="notif-list"></div>
+          </div>
+        </div>
+        <div class="tb-profile">
+          <div class="avatar-sm" id="tb-avatar"></div>
+          <span id="tb-name"></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Search overlay -->
+    <div id="search-overlay" class="search-overlay hidden">
+      <div id="search-results"></div>
+    </div>
+
+    <!-- Page Sections -->
+    <div id="sections">
+      <div id="sec-dashboard"     class="sec active"></div>
+      <div id="sec-courses"        class="sec"></div>
+      <div id="sec-manage-courses" class="sec"></div>
+      <div id="sec-assignments"    class="sec"></div>
+      <div id="sec-grades"         class="sec"></div>
+      <div id="sec-leaderboard"    class="sec"></div>
+      <div id="sec-notes"          class="sec"></div>
+      <div id="sec-timetable"      class="sec"></div>
+      <div id="sec-announcements"  class="sec"></div>
+      <div id="sec-messages"       class="sec"></div>
+      <div id="sec-progress"       class="sec"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== MODAL ====== -->
+<div id="modal-bg" class="modal-bg hidden">
+  <div id="modal-box" class="modal-box">
+    <div class="modal-top">
+      <h2 id="modal-title" class="modal-title"></h2>
+      <button id="modal-close-btn" class="icon-btn">✕</button>
+    </div>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<!-- ====== TOAST ====== -->
+<div id="toast" class="toast hidden">
+  <span id="toast-text"></span>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
